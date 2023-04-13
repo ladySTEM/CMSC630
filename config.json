@@ -1,17 +1,41 @@
 {
-  "input_file": "Cancerous cell smears",
-  "sp_strength": 0.01,
-  "gauss_noise_strength": 4,
-  "gauss_noise_var": 0.8,
-  "median_array": [
+
+"input_file": "Cancerous cell smears",
+
+"sp_strength": 0.01,
+
+"gauss_noise_strength": 4,
+
+"gauss_noise_var": 0.8,
+
+"median_array": [
+
     [ 1, 2, 1 ],
+
     [ 2, 3, 2 ],
+
     [ 1, 2, 1 ]
-  ],
-  "lin_fil_w": 21,
-  "lin_fil_h": 21,
-  "lin_fil_sigma": 5,
-  "img_height": 568,
-  "img_width": 768
+
+],
+
+"lin_fil_w": 21,
+
+"lin_fil_h": 21,
+
+"lin_fil_sigma": 5,
+
+"img_height": 568,
+
+"img_width": 768,
+
+"r":1,
+
+"erosion_iter":1,
+
+"dilation_iter":2,
+
+"k":3
+
+
 
 }
