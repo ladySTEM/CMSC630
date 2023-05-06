@@ -1,15 +1,19 @@
+"""
+
+CMSC 630 - Part 3
+Gabriella Graziani
+
+"""
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import random 
 import math
-import os 
-import argparse
-import time
 from collections import Counter
-import json
 from scipy.signal import convolve2d
 from scipy.signal import find_peaks
+
 
 
 class ImageProcessing():
@@ -30,26 +34,62 @@ class ImageProcessing():
         return new_img
 
     def calc_histogram(self,img): 
+        size = img.shape
+        height = size[0]
+        width = size[1]
         h = np.zeros((self.pixel_range+1)) 
-        for i in range(self.height):
-            for j in range(self.width):
+        for i in range(height-1):
+            for j in range(width-1):
                 h[img[i,j]] = h[img[i,j]]+1        
         return h
 
-    def equalize_histogram(self,img,h):
-        e_hist = np.zeros((h.size))
+    def equalize_histogram(self,img):
+        
+        r,g,b = cv2.split(img)
+        
+        hr = self.calc_histogram(r)
+        hg = self.calc_histogram(g)
+        hb = self.calc_histogram(b)
+        e_histr = np.zeros((hr.size))
+        e_histg = np.zeros((hg.size))
+        e_histb = np.zeros((hb.size))
         cdf_n = 0
-        new_img = np.zeros((self.height,self.width),np.uint8)
-        for index,p_intensity in enumerate(h):
+        
+        new_img_r = r.copy()
+        new_img_g = g.copy()
+        new_img_b = b.copy()
+        
+        for index,p_intensity in enumerate(hr):
             p_n = p_intensity/(self.height * self.width)
             cdf_n = p_n+cdf_n
-            e_hist[index] = round(self.pixel_range*cdf_n)
+            e_histr[index] = round(self.pixel_range*cdf_n)
+            
+        cdf_n = 0
+            
+        for index,p_intensity in enumerate(hg):
+            p_n = p_intensity/(self.height * self.width)
+            cdf_n = p_n+cdf_n
+            e_histg[index] = round(self.pixel_range*cdf_n)
+            
+        cdf_n = 0
+        
+        for index,p_intensity in enumerate(hb):
+            p_n = p_intensity/(self.height * self.width)
+            cdf_n = p_n+cdf_n
+            e_histb[index] = round(self.pixel_range*cdf_n)
+            
         for i in range(self.height):
             for j in range(self.width):
-                pix_val = img[i,j]
-                new_img[i,j] = e_hist[pix_val]
+                r_pix_val = r[i,j]
+                g_pix_val = g[i,j]
+                b_pix_val = b[i,j]
+                new_img_r[i,j] = e_histr[r_pix_val]
+                new_img_g[i,j] = e_histg[g_pix_val]
+                new_img_b[i,j] = e_histb[b_pix_val]
+                
+        new_img = cv2.merge((new_img_r,new_img_g,new_img_b))
 
-        return new_img,e_hist 
+        return new_img
 
     def salt_and_pepper(self,img,strength): 
         new_img = img
@@ -125,25 +165,26 @@ class ImageProcessing():
         return new_img
 
     def median_filter(self,img,pixel_weights):
-        h,w = pixel_weights.shape
-        new_img = np.zeros((self.height,self.width))
-        radius_w = int(math.floor(w/2))
-        radius_h = int(math.floor(h/2))
+        """
+        This functions performs a Gaussia filter using a given input kernel
+        
+        Inputs: 
+            img - rgb array of image
+        Outputs: 
+            new_img - rgb array with applied gaussian filter
+        """
+        r,g,b = cv2.split(img)
+        pixel_weights = np.array(pixel_weights)
+
+        new_img_r = convolve2d(r,pixel_weights,boundary='symm', mode='same')
+        new_img_g = convolve2d(g,pixel_weights,boundary='symm', mode='same')
+        new_img_b = convolve2d(b,pixel_weights,boundary='symm', mode='same')
+        
+        
+        new_img = cv2.merge((new_img_r,new_img_g,new_img_b))/np.sum(pixel_weights)
+        new_img = new_img.astype(int)
     
-        for i in range(radius_h,self.height-radius_h):
-            for j in range(radius_w,self.width-radius_w):
-                array = []
-                for a in range(i-radius_h,i+radius_h+1):
-                    for b in range(j-radius_w,j+radius_w+1):                 
-                        pw_index_y= int(a-(i-radius_h))
-                        pw_index_x =int(b-(j-radius_w))
-                        val = img[a,b]
-                        times = pixel_weights[pw_index_y,pw_index_x]
-                        temp_array = np.repeat(val,times)
-                        array = np.append(array,temp_array)
-                array.sort()
-                middle_element = array[len(array) //2]
-                new_img[i,j] = middle_element
+        return new_img
                 
     def find_edges(self,img):
         """
@@ -154,6 +195,9 @@ class ImageProcessing():
         Outputs: 
             mydisk - array of structure element
         """
+        height, width = img.shape
+        
+        #print("Img height: {} Img Width: {} \n".format(height,width))
         
         new_img = np.zeros((self.height,self.width))
         mat1 = []
@@ -301,73 +345,215 @@ class ImageProcessing():
             var_within.append(var_w)
         var_min = np.amin(var_within)
         threshold = np.where(var_within == var_min)[0]
-        
+        print("Threshold: {}\n".format(threshold))
         foreground = img.copy()
         background = img.copy()
-        foreground[img > threshold] = 0
-        background[img <= threshold] = 0
+        foreground[img > threshold] = 255
+        foreground[img<= threshold] = 0
+        background[img <= threshold] = 255
+        background[img > threshold] = 0
         
       
         
         return foreground,background
     
-    def clustering(self,img, k):
+    def calc_range(self,mean,iter_k,scale):
         """
-        This function uses k_means clustering to separate the image's pixels into k different intensities
+        This function is used in the clustering algorithm to determine 
+        the pixels ranges the centroids should be initialized within
         
-        Inputs:
-            img - 2D array containing pixel grayscale values
-            k - constant that determines how many pixel value clusters the image should be organized into
-        Outputs: 
-            new_img - 2D array containing clustered image values
+        Inputs: 
+            mean - center point of the initialization
+            iter_k - centroid that the range is being applied for
+            scale - the deviation from the mean value 
             
+        Outputs: 
+            beg - begining index of range
+            end - ending index of range
         """
+        beg = mean+(iter_k*scale-scale)
+        end = mean+(iter_k*scale)
+        
+        if beg <0: 
+            beg = 0
+        if end > 255:
+            end = 255
+            
+        return beg,end
+   
+    def clustering(self,img,k):
+        """
+        This function is the k_means clustering algorithm and separate a rgb image into k many rgb colors
+        
+        Inputs: 
+            img - rgb input image array
+            k - value which determines the number of rgb clusters
+        Outputs: 
+            rgb - resulting clustere image
+        """
+        r,g,b = np.split(img,3,axis=2)
+        
+        
+        
+        r_mean = 150#self.mean_h(r)
+        g_mean = 150#self.mean_h(g)
+        b_mean = 150#self.mean_h(b)
+       
+        
+        centroid = [0,0,0]
+        label = []
+        error = 10
+        #clusters = {}
+        
+        error = 1000
+        error_diff = 1000
+       # img = np.interp(img,(img.min(),img.max()),(0,1))
+        
+        scale = 50
+        
+        for iter_k in range(k):
+            beg_r,end_r = self.calc_range(r_mean,iter_k,scale)
+            beg_g,end_g = self.calc_range(g_mean,iter_k,scale)
+            beg_b,end_b = self.calc_range(b_mean,iter_k,scale)
+      
+            
+           # print("Beg r: {} End r: {} mean: {} ".format(beg_r,end_r,r_mean))
+            r_val =random.randint(beg_r,end_r)
+            g_val = random.randint(beg_g,end_g)
+            b_val = random.randint(beg_b,end_b)
+            centroid = np.vstack([centroid,[r_val,g_val,b_val]])
+        centroid = np.delete(centroid,0,axis=0)
+       # print("OG Centroid: {}".format(centroid))
+        label = np.zeros_like(r)
+        
+        while error_diff > 40: 
 
-        k_arr = []
-        error = 10 #initialize error (just needs to be greater than while value)
+            for i in range(self.height-1):
+                for j in range(self.width-1):
+                    pixel = np.array([r[i,j],g[i,j],b[i,j]])
+                    distance = []
+                    for iter_k in range(k):
+                        new_distance = np.linalg.norm(pixel-centroid[iter_k])
+                        distance = np.append(distance,new_distance)
+                    cluster_index = np.argmin(distance)
+                  #  print("Distance: {} Cluster Index: {}".format(distance,cluster_index))
+                    label[i,j] = cluster_index
+            
+            for iter_k in range(k):
+                indices = np.where(label == iter_k)
+            
+                mean_r = int(np.mean(r[indices]))
+                mean_g = int(np.mean(g[indices]))
+                mean_b = int(np.mean(b[indices]))
+                                      
+                new_centroid = np.array([mean_r,mean_g,mean_b])
+                old_error = error
+                error = np.linalg.norm(new_centroid-centroid)
+                
+                error_diff = np.linalg.norm(old_error-error)
+                centroid[iter_k] = new_centroid
+            
+        new_r = np.zeros_like(r)
+        new_g = np.zeros_like(b)
+        new_b = np.zeros_like(g)
+        rgb = np.zeros_like(img)
+        
+       
+        
+        for iter_k in range(k):
+            new_r[label == iter_k] = centroid[iter_k][0]
+            new_g[label == iter_k] = centroid[iter_k][1]
+            new_b[label == iter_k] = centroid[iter_k][2]
+            
+            
+ 
+        rgb = np.stack((new_r[:, :, 0], new_g[:, :, 0], new_b[:, :, 0]), axis=2)
+    
+        return rgb#,binary_img
+                                      
+ 
+    
+    def cluster_threshold(self,img):
+        """
+        This function thresholds the input grayscale image into a foreground and background binary image
+        
+        Inputs: 
+            img - 2d grayscale image array
+        Outputs: 
+            new_img - binary image with foreground containing white pixels and background containing black pixels
+        """
+        
         
         h = self.calc_histogram(img)
         
-        peaks = find_peaks(h)
+        indexmax = np.argmax(h)
         
-        x = np.linspace(0, len(peaks[0])-1,k,dtype=int)
-        print("peaks: {} length: {}\n x:{}\n".format(peaks,len(peaks[0]),x))
+        indexmin = np.argmin(h)
         
-        #Find k number of random pixel values
-        #initialize classes which will hold cluster data
-        clusters = {}
-        for iter_k in range(k):
-            k_arr.append(peaks[0][x[iter_k]])#img[rand_i,rand_j])
-            clusters.setdefault(iter_k,[]) #initialize cluster class
-
-        #Find distance between pixels and centroid
-        #Pixels are organized into clusters based on the centroid that is closest 
-        while error > 1:
-            for i in range(self.height-1):
-                for j in range(self.width-1):   #for first 5 pixels
-                    pixel = img[i,j]
-                    distance = []
-                    for iter_k in range(k):
-                        myk = float(k_arr[iter_k])
-                        new_distance = np.linalg.norm(myk-pixel)
-                        distance.append(new_distance) 
-
-                    cluster_index = np.argmin(distance)
-                    clusters[cluster_index].append(pixel)
-            #Find mean value of clusters, and reassign centroid to this mean. 
-            # Error is the magnitude difference between new K value and old K value
-            for iter_k in range(k):
-                #if clusters[iter_k].length == 0:
-               # print("K-Value: {}\nCluster {} Arr: {}\n".format(k_arr[iter_k],iter_k,clusters[iter_k]))   
-                error = np.linalg.norm(k_arr[iter_k] - np.mean(clusters[iter_k],axis=0))
-                k_arr[iter_k] = int(np.floor(np.mean(clusters[iter_k],axis=0))) #new k values
-
-        new_img = img.copy()
+        new_img = 255*np.ones_like(img)
+        new_img[img == indexmax] =  0
+ 
         
-        #Assign new image values based on which cluster their old values are a part of 
-        for iter_k in range(k):
-            mask = np.apply_along_axis(np.in1d,axis=1, arr= img, ar2= clusters[iter_k])
-            new_img = np.where(mask, k_arr[iter_k], new_img)
-     
-  
-        return new_img
+        return new_img 
+    
+    def extract_features(self,edge_img,binary_img,img):
+        """
+        This function extracts features from the binary edge image, binary foreground image, and color image. 
+        
+        Inputs: 
+            edge_img - 2d binary edge image
+            binary_img - 2d binary foreground/background image
+            img - 2d rgb image
+        Outputs: 
+            features - an array of features extracted from image. Includes perimeter,
+            area, mean rgb, and max histogram intensity value
+        """
+        #Find Perimeter
+        perimeter = int(np.sum(img[10:self.height-1,10:self.width-10])/255)
+        
+        #Find Area
+        area = int(np.sum(binary_img[10:self.height-1,10:self.width-10])/255)
+        col_measure = []
+        row_measure = []
+        
+        #Find mean color from most dense foreground of image
+        my_range  = 50
+        for j in range(60,self.width-60):
+            
+            col_sum = np.sum(binary_img[:,j])
+            col_measure= np.append(col_measure,col_sum)
+            
+        for i in range(60,self.height-60):
+            row_sum = np.sum(binary_img[i,:])
+            row_measure= np.append(row_measure,row_sum)
+        max_x = np.argmax(col_measure)+60
+        max_y = np.argmax(row_measure)+60
+        
+        window = img[max_y-my_range:max_y+my_range,max_x-my_range:max_x+my_range,:]
+        
+    
+        r,g,b = np.split(window,3,axis=2) 
+        
+        mean_r = int(np.mean(r))
+        mean_g = int(np.mean(g))
+        mean_b = int(np.mean(b))
+        
+    
+        
+        #Find histogram from most dense foreground of image
+        window = img[max_y-my_range:max_y+my_range,max_x-my_range:max_x+my_range]
+        h = self.calc_histogram(window)
+        
+        max_h_val = np.argmax(h)
+        
+      
+        features = [perimeter,area,mean_r,mean_g,mean_b,max_h_val]
+        
+
+        
+        return features
+        
+        
+                
+                
+    
